@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Audio;
 
 public class PlayerController : MonoBehaviour
 {
@@ -13,23 +14,73 @@ public class PlayerController : MonoBehaviour
     public float minShootingAngle = 0f;
     public float maxShootingAngle = 90f;
     public float adjustAngleSpeed = 0.25f;
+    public float adjustShootSpeed = 0.1f;
+    public float maxShootSpeed = 20f;
+    public float minShootSpeed = 1f;
+    public float gasUsedScaler = 10f;
+    public float lineWidth = 0.1f;
+    public AudioClip tankMovingClip;
+    public AudioClip angleAdjustClip;
+    public AudioClip tankShootClip;
+    public AudioMixer gameAudioMixer;
+    public Material lineMaterial;
+    public GameObject shootParticleEffectPrefab;
 
     private float terrainSlopeAngle = 0f;
     private float moveHorizontal;
     private LineRenderer lineRenderer;
 
+    private AudioSource movementAudioSource;
+    private AudioSource adjustmentAudioSource;
+    private AudioSource shootingAudioSource;
+
+    private bool isManualAngleChange = false;
+    private bool isManualPowerChange = false;
+    private bool isButtonControlled = false;
+    private ParticleSystem shootingParticleSystem;
+
+    private TerrainGenerator terrainGenerator;
+
     private void Start()
     {
+        movementAudioSource = gameObject.AddComponent<AudioSource>();
+        adjustmentAudioSource = gameObject.AddComponent<AudioSource>();
+        shootingAudioSource = gameObject.AddComponent<AudioSource>();
+
+        if (adjustmentAudioSource)
+        {
+            adjustmentAudioSource.outputAudioMixerGroup = gameAudioMixer.FindMatchingGroups("SFX")[0];
+        }
+        if (shootingAudioSource)
+        {
+            shootingAudioSource.outputAudioMixerGroup = gameAudioMixer.FindMatchingGroups("SFX")[0];
+        }
+        if (movementAudioSource)
+        {
+            movementAudioSource.outputAudioMixerGroup = gameAudioMixer.FindMatchingGroups("SFX")[0];
+        }
+
         lineRenderer = gameObject.AddComponent<LineRenderer>();
         lineRenderer.startWidth = 0.1f;
         lineRenderer.endWidth = 0.1f;
         lineRenderer.positionCount = 2;
-        lineRenderer.material.color = Color.red;
+        lineRenderer.sortingLayerName = "Player";
+        lineRenderer.sortingOrder = 1;
+        lineRenderer.material = lineMaterial;
+        shootingAngle = 45f;
+        projectileSpeed = 10f;
+
+        shootingParticleSystem = Instantiate(shootParticleEffectPrefab, transform.position, Quaternion.identity).GetComponent<ParticleSystem>();
+        Vector3 endPosition = lineRenderer.GetPosition(1);
+        shootingParticleSystem.transform.localScale = new Vector3(0.1f, 0.1f, 0.1f);
+        shootingParticleSystem.transform.position = endPosition;
+
+        terrainGenerator = TerrainGenerator.Instance;
     }
 
     private void Update()
     {
-        moveHorizontal = Input.GetAxis("Horizontal");
+        UpdateMovement();
 
         bool isMoving = moveHorizontal != 0;
         tankAnimation.SetBool("isMoving", isMoving);
@@ -37,9 +88,40 @@ public class PlayerController : MonoBehaviour
         Vector2 movement = new Vector2(moveHorizontal, 0) * speed * Time.deltaTime;
         transform.Translate(movement, Space.World);
 
+        if (isMoving && isButtonControlled)
+        {
+            terrainGenerator.ReduceGas(gasUsedScaler * Time.deltaTime);
+        }
+
+        if (isMoving && !movementAudioSource.isPlaying)
+        {
+            movementAudioSource.clip = tankMovingClip;
+            movementAudioSource.Play();
+        }
+        else if (!isMoving)
+        {
+            movementAudioSource.Stop();
+        }
+
         AlignWithTerrain();
 
-        UpdateShootingAngle();
+        if (!isManualAngleChange)
+        {
+            UpdateShootingAngle();
+        }
+        else
+        {
+            isManualAngleChange = false;
+        }
+
+        if (!isManualPowerChange)
+        {
+            UpdateProjectileSpeed();
+        }
+        else
+        {
+            isManualPowerChange = false;
+        }
 
         UpdateLineRenderer();
 
@@ -73,17 +155,87 @@ public class PlayerController : MonoBehaviour
 
     private void UpdateShootingAngle()
     {
-        if (Input.GetKey(KeyCode.F))
+        if (Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow))
+        {
+            if (!adjustmentAudioSource.isPlaying)
+            {
+                adjustmentAudioSource.clip = angleAdjustClip;
+                adjustmentAudioSource.Play();
+            }
+        }
+        else
+        {
+            if (adjustmentAudioSource.isPlaying)
+            {
+                adjustmentAudioSource.Stop();
+            }
+        }
+
+        if (Input.GetKey(KeyCode.LeftArrow))
         {
             shootingAngle += adjustAngleSpeed;
         }
-
-        if (Input.GetKey(KeyCode.J))
+        else if (Input.GetKey(KeyCode.RightArrow))
         {
             shootingAngle -= adjustAngleSpeed;
         }
 
         shootingAngle = Mathf.Clamp(shootingAngle, minShootingAngle, maxShootingAngle);
+
+        if (TerrainGenerator.Instance != null && TerrainGenerator.Instance.angleSlider != null)
+        {
+            TerrainGenerator.Instance.angleSlider.value = shootingAngle;
+        }
+    }
+
+    private void UpdateProjectileSpeed()
+    {
+        if (Input.GetKey(KeyCode.UpArrow))
+        {
+            projectileSpeed += adjustShootSpeed;
+        }
+        else if (Input.GetKey(KeyCode.DownArrow))
+        {
+            projectileSpeed -= adjustShootSpeed;
+        }
+
+        projectileSpeed = Mathf.Clamp(projectileSpeed, minShootSpeed, maxShootSpeed);
+
+        if (TerrainGenerator.Instance != null && TerrainGenerator.Instance.powerSlider != null)
+        {
+            TerrainGenerator.Instance.powerSlider.value = projectileSpeed;
+        }
+    }
+
+    private void UpdateMovement()
+    {
+        if (terrainGenerator.GetGasLeft() <= 0)
+        {
+            moveHorizontal = 0;
+            return;
+        }
+
+        if (!isButtonControlled)
+        {
+            if (Input.GetKey(KeyCode.A) && Input.GetKey(KeyCode.D))
+            {
+                moveHorizontal = 0;
+            }
+            else if (Input.GetKey(KeyCode.A))
+            {
+                moveHorizontal = -1;
+                terrainGenerator.ReduceGas(gasUsedScaler * Time.deltaTime);
+            }
+            else if (Input.GetKey(KeyCode.D))
+            {
+                moveHorizontal = 1;
+                terrainGenerator.ReduceGas(gasUsedScaler * Time.deltaTime);
+            }
+            else
+            {
+                moveHorizontal = 0;
+            }
+        }
     }
 
     private void UpdateLineRenderer()
@@ -93,15 +245,15 @@ public class PlayerController : MonoBehaviour
 
         lineRenderer.SetPosition(0, startPosition);
         lineRenderer.SetPosition(1, endPosition);
+
+        shootingParticleSystem.transform.position = endPosition;
+        shootingParticleSystem.transform.rotation = Quaternion.Euler(0, 0, shootingAngle);
     }
 
-    private void FireProjectile()
+    public void FireProjectile()
     {
-        // If the enemy is firing, don't let the player fire
-        if (GameManager.instance.IsEnemyFiring)
-        {
+        if (GameManager.instance.IsEnemyFiring || GameObject.FindGameObjectWithTag("Projectile") != null)
             return;
-        }
 
         Vector2 startPosition = transform.position + Quaternion.Euler(0, 0, shootingAngle) * Vector3.right * 0.5f;
 
@@ -112,9 +264,44 @@ public class PlayerController : MonoBehaviour
 
         rb.AddForce(Quaternion.Euler(0, 0, shootingAngle) * Vector2.right * projectileSpeed, ForceMode2D.Impulse);
 
+        shootingAudioSource.PlayOneShot(tankShootClip);
+        shootingParticleSystem.Play();
+
         GameManager.instance.lastShotAngle = shootingAngle;
         GameManager.instance.lastShotSpeed = projectileSpeed;
-
         GameManager.instance.PlayerShot();
+    }
+
+    public void StartMoveForward()
+    {
+        isButtonControlled = true;
+        moveHorizontal = 1;
+    }
+
+    public void StopMove()
+    {
+        isButtonControlled = false;
+        if (!Input.GetKey(KeyCode.A) && !Input.GetKey(KeyCode.D))
+        {
+            moveHorizontal = 0;
+        }
+    }
+
+    public void StartMoveBackward()
+    {
+        isButtonControlled = true;
+        moveHorizontal = -1;
+    }
+
+    public void SetAngle(float value)
+    {
+        shootingAngle = value;
+        isManualAngleChange = true;
+    }
+
+    public void SetPower(float value)
+    {
+        projectileSpeed = value;
+        isManualPowerChange = true;
     }
 }
