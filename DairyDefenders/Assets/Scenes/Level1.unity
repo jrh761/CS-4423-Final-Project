@@ -152,7 +152,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 7ffe894bc85f0154296331e2fdf40ae5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  playerPrefab: {fileID: 5330256115483323409, guid: 1e89f446c3098aa4fbb01e1863e38d39, type: 3}
+  playerPrefab: {fileID: 256755783470635896, guid: 1e89f446c3098aa4fbb01e1863e38d39, type: 3}
   enemyPrefab: {fileID: 5931811673222115544, guid: eb613c5953268704284b907f9c0a085b, type: 3}
   gameCanvas: {fileID: 1014479202}
   terrainMaterial: {fileID: 2100000, guid: 88e7da013d61f8d43b6531a5b91d5359, type: 2}
